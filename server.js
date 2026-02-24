@@ -24,14 +24,21 @@ console.log('\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\
 console.log('');
 
 const app = express();
+app.set('trust proxy', 1);
 const httpServer = http.createServer(app);
 const io = new Server(httpServer);
 
+const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 const sessionMiddleware = session({
-    secret: 'aether-secure-key-2026',
+    secret: process.env.SESSION_SECRET || 'aether-secure-key-2026',
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 24 * 60 * 60 * 1000 }
+    cookie: {
+        maxAge: 24 * 60 * 60 * 1000,
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax',
+        httpOnly: true
+    }
 });
 
 app.use(express.json({ limit: '10mb' }));
@@ -39,13 +46,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
 io.engine.use(sessionMiddleware);
 
-// Multer
-const storage = multer.diskStorage({
-    destination: path.join(__dirname, 'public', 'uploads'),
-    filename: (req, file, cb) => cb(null, uuidv4() + path.extname(file.originalname))
-});
+// Multer — use memory storage for Render (ephemeral filesystem)
 const upload = multer({
-    storage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         const allowed = /jpeg|jpg|png|gif|webp|mp4|webm|pdf/;
@@ -68,7 +71,10 @@ app.post('/api/upload', (req, res, next) => {
     next();
 }, upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    res.json({ url: '/uploads/' + req.file.filename, type: req.file.mimetype.startsWith('image/') ? 'image' : 'file', name: req.file.originalname, size: req.file.size });
+    // Convert to Base64 data URI (avoids ephemeral filesystem issues on Render)
+    const base64 = req.file.buffer.toString('base64');
+    const dataUri = `data:${req.file.mimetype};base64,${base64}`;
+    res.json({ url: dataUri, type: req.file.mimetype.startsWith('image/') ? 'image' : 'file', name: req.file.originalname, size: req.file.size });
 });
 
 setupChatSockets(io);
