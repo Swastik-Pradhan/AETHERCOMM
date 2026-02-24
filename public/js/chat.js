@@ -22,6 +22,8 @@ const Chat = {
     currentCommunity: null,  // full community data with members
     unreadMap: {},
     emojiPickerOpen: false,
+    replyingTo: null,
+    forwardingMsg: null,
 
     init() {
         console.log('[AETHER] Chat.init() called');
@@ -99,6 +101,11 @@ const Chat = {
                 clearTimeout(typingTimer);
                 typingTimer = setTimeout(() => App.socket.emit('stop-typing', payload), 1500);
             });
+
+            // Reply & Forward UI
+            document.getElementById('btn-cancel-reply').addEventListener('click', () => this.cancelReply());
+            document.getElementById('btn-close-forward').addEventListener('click', () => { document.getElementById('forward-modal').style.display = 'none'; });
+            document.getElementById('forward-search').addEventListener('input', e => this.filterForwardList(e.target.value));
             console.log('[AETHER] Chat.bindUI() complete — all bindings done');
         } catch (err) {
             console.error('[AETHER] FATAL: Chat.bindUI() error:', err);
@@ -175,15 +182,28 @@ const Chat = {
         });
 
         // Community messages — real-time
-        socket.on('community-message', msg => {
-            if (msg.sender_id === App.currentUser.id) return; // don't duplicate own messages
+        socket.on('community-message', (msg) => {
+            if (msg.sender_id === App.currentUser.id) return;
             if (this.currentChat && this.currentChat.type === 'community' && this.currentChat.id === msg.community_id) {
                 this.appendMessage(msg);
             } else {
-                // Community unread
                 const key = 'c:' + msg.community_id;
                 this.unreadMap[key] = (this.unreadMap[key] || 0) + 1;
                 this.renderCommunities();
+            }
+        });
+
+        socket.on('message-reaction', (data) => {
+            this.addReactionToDOM(data.messageId, data.emoji, data.userId, data.count, data.me);
+        });
+
+        socket.on('delete-message', (data) => {
+            const el = document.querySelector(`[data-msg-id="${data.messageId}"]`);
+            if (el) {
+                el.style.transition = 'opacity 0.3s, transform 0.3s';
+                el.style.opacity = '0';
+                el.style.transform = 'scale(0.8)';
+                setTimeout(() => el.remove(), 300);
             }
         });
 
@@ -726,6 +746,17 @@ const Chat = {
         const time = this.formatTime(msg.timestamp);
         const readIcon = (isSent && this.currentChat?.type === 'dm') ? (msg.read ? '<span class="msg-read-icon" style="color:var(--nerv-cyan)">\u2713\u2713</span>' : '<span class="msg-read-icon pending">\u2713</span>') : '';
 
+        // Reply quote rendering
+        let replyHTML = '';
+        if (msg.reply_to_id) {
+            replyHTML = `
+                <div class="msg-reply-quote" onclick="Chat.scrollToMessage('${msg.reply_to_id}')">
+                    <div class="reply-quote-name">${msg.reply_to_name || 'User'}</div>
+                    <div class="reply-quote-text">${this.escapeHtml(msg.reply_to_content || 'Message')}</div>
+                </div>
+            `;
+        }
+
         let contentHTML = '';
         if (msg.type === 'image') {
             contentHTML = `<img class="msg-image" src="${msg.content}" alt="Image" onclick="Chat.previewImage('${msg.content}')">`;
@@ -737,10 +768,17 @@ const Chat = {
       <div class="msg-avatar hex-avatar" style="background:${color}">${avatarContent}</div>
       <div class="msg-content">
         ${!isSent ? `<div class="msg-name">${msg.sender_name}</div>` : ''}
+        ${replyHTML}
         ${contentHTML}
+        <div class="reactions-container" id="reactions-${msg.id}"></div>
         <div class="msg-time">${time} ${readIcon}</div>
       </div>
     `;
+
+        // Render existing reactions if any
+        if (msg.reactions) {
+            msg.reactions.forEach(r => this.addReactionToDOM(msg.id, r.emoji, r.user_id, r.count, r.me));
+        }
 
         // Right-click context menu for delete
         div.addEventListener('contextmenu', (e) => {
@@ -770,12 +808,30 @@ const Chat = {
         menu.id = 'msg-context-menu';
         menu.className = 'msg-context-menu';
 
+        const contentText = msgId ? (document.querySelector(`[data-msg-id="${msgId}"] .msg-bubble`)?.textContent || 'Image') : '';
+
         menu.innerHTML = `
-            <div class="ctx-option" onclick="Chat.deleteForMe('${msgId}')">
-                <span class="ctx-icon">\ud83d\uddd1\ufe0f</span> Delete for me
+            <div class="ctx-option" onclick="Chat.copyToClipboard('${contentText}')">
+                <span class="ctx-icon">📋</span> Copy
             </div>
-            ${isSender ? `<div class="ctx-option ctx-danger" onclick="Chat.deleteForAll('${msgId}')">
-                <span class="ctx-icon">\u274c</span> Delete for everyone
+            <div class="ctx-option" onclick="Chat.startReply('${msgId}')">
+                <span class="ctx-icon">↩️</span> Reply
+            </div>
+            <div class="ctx-option" onclick="Chat.tagUser('${msgId}')">
+                <span class="ctx-icon">🏷️</span> Tag
+            </div>
+            <div class="ctx-option" onclick="Chat.showForwardModal('${msgId}')">
+                <span class="ctx-icon">➡️</span> Forward
+            </div>
+            <div class="ctx-option" onclick="Chat.showQuickReactions(event, '${msgId}')">
+                <span class="ctx-icon">😀</span> React
+            </div>
+            <div class="ctx-option" onclick="Chat.deleteForMe('${msgId}')">
+                <span class="ctx-icon">🗑️</span> Delete for me
+            </div>
+            ${isSender ? `
+            <div class="ctx-option ctx-danger" onclick="Chat.deleteForAll('${msgId}')">
+                <span class="ctx-icon">❌</span> Delete for everyone
             </div>` : ''}
         `;
 
@@ -865,7 +921,10 @@ const Chat = {
         if (!text || !this.currentChat) return;
 
         if (this.currentChat.type === 'community') {
-            App.socket.emit('community-message', { communityId: this.currentChat.id, content: text, type: 'text' });
+            const payload = { communityId: this.currentChat.id, content: text, type: 'text' };
+            if (this.replyingTo) payload.replyToId = this.replyingTo;
+
+            App.socket.emit('community-message', payload);
             // Append own message immediately
             this.appendMessage({
                 id: Date.now().toString(),
@@ -874,12 +933,18 @@ const Chat = {
                 sender_color: App.currentUser.avatar_color,
                 sender_avatar: App.currentUser.avatar,
                 content: text, type: 'text',
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                reply_to_id: this.replyingTo,
+                reply_to_name: this.replyingTo ? document.querySelector(`[data-msg-id="${this.replyingTo}"] .msg-name`)?.textContent || App.currentUser.username : null,
+                reply_to_content: this.replyingTo ? document.querySelector(`[data-msg-id="${this.replyingTo}"] .msg-bubble`)?.textContent || 'Image' : null
             });
         } else {
-            App.socket.emit('private-message', { receiverId: this.currentChat.id, content: text, type: 'text' });
+            const payload = { receiverId: this.currentChat.id, content: text, type: 'text' };
+            if (this.replyingTo) payload.replyToId = this.replyingTo;
+            App.socket.emit('private-message', payload);
         }
         input.value = '';
+        this.cancelReply();
         this.closeEmojiPicker();
     },
 
@@ -984,6 +1049,14 @@ const Chat = {
         const c = document.getElementById('messages-container');
         requestAnimationFrame(() => { c.scrollTop = c.scrollHeight; });
     },
+    scrollToMessage(msgId) {
+        const el = document.querySelector(`[data-msg-id="${msgId}"]`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('highlight-flash');
+            setTimeout(() => el.classList.remove('highlight-flash'), 2000);
+        }
+    },
     escapeHtml(text) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; },
     formatTime(ts) {
         if (!ts) return '';
@@ -992,6 +1065,153 @@ const Chat = {
         if (mins < 1) return 'Just now'; if (mins < 60) return mins + 'm ago';
         const hrs = Math.floor(mins / 60); if (hrs < 24) return hrs + 'h ago';
         return d.toLocaleDateString();
+    },
+
+    // ─── MESSAGE ACTIONS ────────────────────────────────────────
+    copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            this.hideMsgContextMenu();
+        });
+    },
+
+    startReply(msgId) {
+        this.hideMsgContextMenu();
+        const el = document.querySelector(`[data-msg-id="${msgId}"]`);
+        if (!el) return;
+
+        const senderName = el.querySelector('.msg-name')?.textContent || (el.classList.contains('sent') ? App.currentUser.username : 'User');
+        const text = el.querySelector('.msg-bubble')?.textContent || 'Image';
+
+        this.replyingTo = msgId;
+        document.getElementById('reply-preview-name').textContent = senderName;
+        document.getElementById('reply-preview-text').textContent = text;
+        document.getElementById('reply-preview-bar').style.display = 'flex';
+        document.getElementById('message-input').focus();
+    },
+
+    cancelReply() {
+        this.replyingTo = null;
+        document.getElementById('reply-preview-bar').style.display = 'none';
+    },
+
+    tagUser(msgId) {
+        this.hideMsgContextMenu();
+        const el = document.querySelector(`[data-msg-id="${msgId}"]`);
+        if (!el) return;
+        const senderName = el.querySelector('.msg-name')?.textContent || 'User';
+        const input = document.getElementById('message-input');
+        input.value += ` @${senderName} `;
+        input.focus();
+    },
+
+    showQuickReactions(e, msgId) {
+        e.stopPropagation();
+        this.hideMsgContextMenu();
+        const reactions = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+        const menu = document.createElement('div');
+        menu.id = 'msg-context-menu';
+        menu.className = 'msg-context-menu quick-react-menu';
+        menu.style.display = 'flex';
+        menu.style.padding = '8px';
+        menu.style.gap = '8px';
+
+        menu.innerHTML = reactions.map(r => `
+            <div class="emoji-item" style="font-size:20px;cursor:pointer;" onclick="Chat.handleReactionClick('${msgId}', '${r}')">${r}</div>
+        `).join('');
+
+        document.body.appendChild(menu);
+        menu.style.left = e.pageX + 'px';
+        menu.style.top = e.pageY + 'px';
+
+        setTimeout(() => {
+            document.addEventListener('click', this._ctxClose = () => this.hideMsgContextMenu(), { once: true });
+        }, 10);
+    },
+
+    async handleReactionClick(msgId, emoji) {
+        this.hideMsgContextMenu();
+        try {
+            const r = await fetch(`/api/messages/${msgId}/react`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emoji })
+            });
+            if (r.ok) {
+                const data = await r.json();
+                App.socket.emit('message-reaction', {
+                    messageId: msgId,
+                    emoji,
+                    userId: App.currentUser.id,
+                    receiverId: this.currentChat?.id,
+                    communityId: this.currentChat?.type === 'community' ? this.currentChat.id : null,
+                    count: data.count,
+                    me: data.me
+                });
+                this.addReactionToDOM(msgId, emoji, App.currentUser.id, data.count, data.me);
+            }
+        } catch (e) { console.error('[AETHER] React error:', e); }
+    },
+
+    addReactionToDOM(msgId, emoji, userId, count, me) {
+        const container = document.getElementById(`reactions-${msgId}`);
+        if (!container) return;
+
+        let pill = container.querySelector(`[data-emoji="${emoji}"]`);
+        if (!pill) {
+            pill = document.createElement('div');
+            pill.className = 'reaction-pill';
+            pill.dataset.emoji = emoji;
+            pill.innerHTML = `<span>${emoji}</span> <span class="reaction-count">${count}</span>`;
+            pill.onclick = () => this.handleReactionClick(msgId, emoji);
+            container.appendChild(pill);
+        } else {
+            pill.querySelector('.reaction-count').textContent = count;
+        }
+
+        if (me) pill.classList.add('active');
+        else if (userId === App.currentUser.id) pill.classList.remove('active');
+
+        if (count <= 0) pill.remove();
+    },
+
+    showForwardModal(msgId) {
+        this.hideMsgContextMenu();
+        const el = document.querySelector(`[data-msg-id="${msgId}"] .msg-bubble`);
+        const content = el ? el.textContent : 'Image';
+        this.forwardingMsg = { id: msgId, content };
+
+        document.getElementById('forward-preview').textContent = `Forwarding: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`;
+        this.renderForwardList();
+        document.getElementById('forward-modal').style.display = 'flex';
+    },
+
+    renderForwardList(filter = '') {
+        const list = document.getElementById('forward-contacts-list');
+        const filtered = this.contacts.filter(c => c.username.toLowerCase().includes(filter.toLowerCase()));
+        list.innerHTML = filtered.map(c => `
+            <div class="forward-contact-item" onclick="Chat.forwardTo('${c.id}')">
+                <div class="hex-avatar" style="background:${c.avatar_color};width:28px;height:28px;font-size:11px;">
+                    ${renderAvatarContent(c.avatar, c.username)}
+                </div>
+                <span>${c.username}</span>
+            </div>
+        `).join('');
+    },
+
+    filterForwardList(val) { this.renderForwardList(val); },
+
+    async forwardTo(targetId) {
+        if (!this.forwardingMsg) return;
+        try {
+            App.socket.emit('private-message', {
+                receiverId: targetId,
+                content: `[Forwarded] ${this.forwardingMsg.content}`,
+                type: 'text'
+            });
+            document.getElementById('forward-modal').style.display = 'none';
+            const contact = this.contacts.find(c => c.id === targetId);
+            if (contact) this.openChat(contact);
+        } catch (e) { console.error('[AETHER] Forward error:', e); }
     }
 };
 

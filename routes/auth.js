@@ -13,10 +13,16 @@ const AVATAR_COLORS = [
 
 router.post('/register', async (req, res) => {
     try {
-        const { username, password } = req.body;
+        const { username, password, email } = req.body;
 
-        if (!username || !password) {
-            return res.status(400).json({ error: 'Username and password required' });
+        if (!username || !password || !email) {
+            return res.status(400).json({ error: 'Username, email, and password required' });
+        }
+
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ error: 'Invalid email format' });
         }
 
         if (username.length < 3 || username.length > 20) {
@@ -28,9 +34,15 @@ router.post('/register', async (req, res) => {
         }
 
         // Check if username exists
-        const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
-        if (existing) {
+        const existing = await db.query('SELECT id FROM users WHERE username = $1', [username]);
+        if (existing.rows.length > 0) {
             return res.status(409).json({ error: 'Username already taken' });
+        }
+
+        // Check if email exists
+        const existingEmail = await db.query('SELECT id FROM users WHERE email = $1', [email]);
+        if (existingEmail.rows.length > 0) {
+            return res.status(409).json({ error: 'Email already registered' });
         }
 
         const { avatar } = req.body;
@@ -39,9 +51,10 @@ router.post('/register', async (req, res) => {
         const avatar_color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
         const selectedAvatar = avatar || 'default';
 
-        db.prepare(
-            'INSERT INTO users (id, username, password_hash, avatar_color, avatar) VALUES (?, ?, ?, ?, ?)'
-        ).run(id, username, password_hash, avatar_color, selectedAvatar);
+        await db.query(
+            'INSERT INTO users (id, username, email, password_hash, avatar_color, avatar) VALUES ($1, $2, $3, $4, $5, $6)',
+            [id, username, email, password_hash, avatar_color, selectedAvatar]
+        );
 
         req.session.userId = id;
         req.session.username = username;
@@ -67,7 +80,8 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ error: 'Username and password required' });
         }
 
-        const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+        const { rows } = await db.query('SELECT * FROM users WHERE username = $1', [username]);
+        const user = rows[0];
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
@@ -81,7 +95,7 @@ router.post('/login', async (req, res) => {
         req.session.username = user.username;
 
         // Update online status
-        db.prepare('UPDATE users SET online = 1 WHERE id = ?').run(user.id);
+        await db.query('UPDATE users SET online = 1 WHERE id = $1', [user.id]);
 
         res.json({
             id: user.id,
@@ -96,22 +110,21 @@ router.post('/login', async (req, res) => {
     }
 });
 
-router.post('/logout', (req, res) => {
+router.post('/logout', async (req, res) => {
     if (req.session.userId) {
-        db.prepare('UPDATE users SET online = 0, last_seen = datetime(\'now\') WHERE id = ?')
-            .run(req.session.userId);
+        await db.query('UPDATE users SET online = 0, last_seen = CURRENT_TIMESTAMP WHERE id = $1', [req.session.userId]);
     }
     req.session.destroy();
     res.json({ success: true });
 });
 
-router.get('/me', (req, res) => {
+router.get('/me', async (req, res) => {
     if (!req.session.userId) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const user = db.prepare('SELECT id, username, avatar_color, avatar, status, online FROM users WHERE id = ?')
-        .get(req.session.userId);
+    const { rows } = await db.query('SELECT id, username, avatar_color, avatar, status, online FROM users WHERE id = $1', [req.session.userId]);
+    const user = rows[0];
 
     if (!user) {
         return res.status(401).json({ error: 'User not found' });
@@ -120,7 +133,7 @@ router.get('/me', (req, res) => {
     res.json(user);
 });
 
-router.put('/profile', (req, res) => {
+router.put('/profile', async (req, res) => {
     if (!req.session.userId) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -130,15 +143,15 @@ router.put('/profile', (req, res) => {
     const values = [];
 
     if (avatar) {
-        updates.push('avatar = ?');
+        updates.push(`avatar = $${values.length + 1}`);
         values.push(avatar);
     }
     if (status) {
-        updates.push('status = ?');
+        updates.push(`status = $${values.length + 1}`);
         values.push(status);
     }
     if (avatar_color) {
-        updates.push('avatar_color = ?');
+        updates.push(`avatar_color = $${values.length + 1}`);
         values.push(avatar_color);
     }
 
@@ -147,12 +160,78 @@ router.put('/profile', (req, res) => {
     }
 
     values.push(req.session.userId);
-    db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    await db.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${values.length}`, values);
 
-    const user = db.prepare('SELECT id, username, avatar_color, avatar, status FROM users WHERE id = ?')
-        .get(req.session.userId);
+    const { rows } = await db.query('SELECT id, username, avatar_color, avatar, status FROM users WHERE id = $1', [req.session.userId]);
+    res.json(rows[0]);
+});
 
-    res.json(user);
+// Forgot password — generate reset code
+router.post('/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: 'Email is required' });
+
+        const { rows } = await db.query('SELECT id, username FROM users WHERE email = $1', [email]);
+        const user = rows[0];
+        if (!user) {
+            // Don't reveal whether email exists — still return success
+            return res.json({ success: true, message: 'If that email is registered, a reset code has been generated' });
+        }
+
+        // Generate 6-digit code
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min
+
+        // Invalidate old codes for this email
+        await db.query('UPDATE password_resets SET used = TRUE WHERE email = $1 AND used = FALSE', [email]);
+
+        // Store new code
+        await db.query('INSERT INTO password_resets (email, code, expires_at) VALUES ($1, $2, $3)', [email, code, expiresAt]);
+
+        // In production, send via email (Nodemailer). For now, return the code directly.
+        res.json({ success: true, message: 'Reset code generated', code, expiresIn: '15 minutes' });
+    } catch (err) {
+        console.error('Forgot password error:', err);
+        res.status(500).json({ error: 'Failed to process request' });
+    }
+});
+
+// Reset password — validate code and set new password
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { email, code, newPassword } = req.body;
+        if (!email || !code || !newPassword) {
+            return res.status(400).json({ error: 'Email, code, and new password required' });
+        }
+        if (newPassword.length < 4) {
+            return res.status(400).json({ error: 'Password must be at least 4 characters' });
+        }
+
+        const { rows } = await db.query(
+            'SELECT * FROM password_resets WHERE email = $1 AND code = $2 AND used = FALSE ORDER BY created_at DESC LIMIT 1',
+            [email, code]
+        );
+        const reset = rows[0];
+
+        if (!reset) {
+            return res.status(400).json({ error: 'Invalid or expired reset code' });
+        }
+
+        if (new Date(reset.expires_at) < new Date()) {
+            await db.query('UPDATE password_resets SET used = TRUE WHERE id = $1', [reset.id]);
+            return res.status(400).json({ error: 'Reset code has expired' });
+        }
+
+        const password_hash = await bcrypt.hash(newPassword, 10);
+        await db.query('UPDATE users SET password_hash = $1 WHERE email = $2', [password_hash, email]);
+        await db.query('UPDATE password_resets SET used = TRUE WHERE id = $1', [reset.id]);
+
+        res.json({ success: true, message: 'Password reset successfully' });
+    } catch (err) {
+        console.error('Reset password error:', err);
+        res.status(500).json({ error: 'Failed to reset password' });
+    }
 });
 
 module.exports = router;

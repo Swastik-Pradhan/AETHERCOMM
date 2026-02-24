@@ -12,6 +12,7 @@ const Call = {
     isCameraOff: false,
     currentCallTarget: null,
     incomingCallData: null,
+    candidateQueue: [], // Queue for ICE candidates that arrive before PC is ready
 
     // STUN/TURN servers for NAT traversal
     iceConfig: {
@@ -21,9 +22,13 @@ const Call = {
             { urls: 'stun:stun2.l.google.com:19302' },
             { urls: 'stun:stun3.l.google.com:19302' },
             { urls: 'stun:stun4.l.google.com:19302' },
-            // For calls behind strict NATs/firewalls, add a TURN server.
-            // Get free credentials at https://www.metered.ca/stun-turn
-            // { urls: 'turn:YOUR_SERVER:443', username: 'YOUR_USER', credential: 'YOUR_PASS' }
+            { urls: 'stun:stun.ekiga.net' },
+            { urls: 'stun:stun.ideasip.com' },
+            { urls: 'stun:stun.schlund.de' },
+            { urls: 'stun:stun.voiparound.com' },
+            { urls: 'stun:stun.voipbuster.com' },
+            { urls: 'stun:stun.voipstunt.com' },
+            { urls: 'stun:stun.voxgratia.org' }
         ]
     },
 
@@ -104,9 +109,9 @@ const Call = {
                 }
             };
 
-            // ICE candidates
             this.peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
+                    console.log('[NERV] Sending ICE candidate to peer');
                     App.socket.emit('ice-candidate', {
                         targetUserId: target.id,
                         candidate: event.candidate
@@ -117,6 +122,7 @@ const Call = {
             // Connection state monitoring
             this.peerConnection.onconnectionstatechange = () => {
                 const state = this.peerConnection.connectionState;
+                console.log('[NERV] Connection state changed:', state);
                 const statusText = document.getElementById('call-status-text');
 
                 switch (state) {
@@ -135,9 +141,15 @@ const Call = {
                 }
             };
 
+            // Set call status
+            document.getElementById('call-status-text').textContent = 'CALLING...';
+
             // Create and send offer
             const offer = await this.peerConnection.createOffer();
             await this.peerConnection.setLocalDescription(offer);
+
+            // Drain candidate queue (though unlikely to have any yet as caller)
+            this.drainCandidateQueue();
 
             App.socket.emit('call-user', {
                 targetUserId: target.id,
@@ -237,6 +249,7 @@ const Call = {
 
             this.peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
+                    console.log('[NERV] Sending ICE candidate to peer');
                     App.socket.emit('ice-candidate', {
                         targetUserId: data.callerUserId,
                         candidate: event.candidate
@@ -246,6 +259,7 @@ const Call = {
 
             this.peerConnection.onconnectionstatechange = () => {
                 const state = this.peerConnection.connectionState;
+                console.log('[NERV] Connection state changed:', state);
                 const statusText = document.getElementById('call-status-text');
 
                 switch (state) {
@@ -270,6 +284,9 @@ const Call = {
             // Create answer
             const answer = await this.peerConnection.createAnswer();
             await this.peerConnection.setLocalDescription(answer);
+
+            // Drain candidate queue (IMPORTANT: candidates often arrive before PC is ready)
+            this.drainCandidateQueue();
 
             App.socket.emit('call-answer', {
                 targetUserId: data.callerUserId,
@@ -314,12 +331,33 @@ const Call = {
 
     // ─── Handle ICE candidate ───
     async handleIceCandidate(data) {
+        if (!data.candidate) return;
+
         try {
-            if (this.peerConnection) {
+            if (this.peerConnection && this.peerConnection.remoteDescription) {
+                console.log('[NERV] Adding ICE candidate to PeerConnection');
                 await this.peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+            } else {
+                console.log('[NERV] PeerConnection not ready, queuing ICE candidate');
+                this.candidateQueue.push(data.candidate);
             }
         } catch (err) {
-            console.error('[NERV] ICE candidate error:', err);
+            console.error('[NERV] Failed to handle ICE candidate:', err);
+        }
+    },
+
+    // ─── Drain candidate queue ───
+    async drainCandidateQueue() {
+        if (this.candidateQueue.length > 0) {
+            console.log(`[NERV] Draining \${this.candidateQueue.length} queued ICE candidates`);
+            while (this.candidateQueue.length > 0) {
+                const candidate = this.candidateQueue.shift();
+                try {
+                    await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch (err) {
+                    console.error('[NERV] Failed to add queued candidate:', err);
+                }
+            }
         }
     },
 

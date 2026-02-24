@@ -11,6 +11,7 @@ const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const friendRoutes = require('./routes/friends');
 const communityRoutes = require('./routes/community');
+const db = require('./db');
 
 const PORT = process.env.PORT || 3000;
 
@@ -82,7 +83,16 @@ setupCallSockets(io);
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-httpServer.listen(PORT, () => {
-    console.log(`[AETHER] System operational on port ${PORT}`);
-    console.log(`[AETHER] Access terminal: http://localhost:${PORT}\n`);
+db.initDb().then(() => {
+    httpServer.listen(PORT, () => {
+        console.log(`[AETHER] System operational on port ${PORT}`);
+        console.log(`[AETHER] Access terminal: http://localhost:${PORT}\n`);
+    });
+}).catch(err => {
+    console.error('[AETHER] Failed to initialize database:', err);
+    // Continue starting the server even if DB init fails (for debugging)
+    // or exit if its mission critical. Here we'll just log and try to start.
+    httpServer.listen(PORT, () => {
+        console.log(`[AETHER] System operational (DB INIT FAILED) on port ${PORT}`);
+    });
 });

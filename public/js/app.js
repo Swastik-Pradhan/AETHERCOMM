@@ -109,6 +109,17 @@ const App = {
         document.getElementById('login-form').addEventListener('submit', e => { e.preventDefault(); this.login(); });
         document.getElementById('register-form').addEventListener('submit', e => { e.preventDefault(); this.register(); });
         document.getElementById('btn-logout').addEventListener('click', () => this.logout());
+
+        // Forgot password bindings
+        document.getElementById('forgot-password-link').addEventListener('click', e => {
+            e.preventDefault();
+            this.showForgotPasswordModal();
+        });
+        document.getElementById('btn-close-forgot').addEventListener('click', () => {
+            document.getElementById('forgot-password-modal').style.display = 'none';
+        });
+        document.getElementById('btn-send-reset-code').addEventListener('click', () => this.forgotPassword());
+        document.getElementById('btn-reset-password').addEventListener('click', () => this.resetPassword());
     },
 
     bindProfileEvents() {
@@ -175,6 +186,7 @@ const App = {
 
     async register() {
         const u = document.getElementById('register-username').value.trim();
+        const e_mail = document.getElementById('register-email').value.trim();
         const p = document.getElementById('register-password').value;
         const c = document.getElementById('register-confirm').value;
         const avatar = document.getElementById('register-avatar').value;
@@ -184,7 +196,7 @@ const App = {
         if (p !== c) { err.textContent = 'Access codes do not match'; err.classList.add('show'); return; }
         btn.classList.add('loading');
         try {
-            const r = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p, avatar }) });
+            const r = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, email: e_mail, password: p, avatar }) });
             const d = await r.json();
             if (!r.ok) throw new Error(d.error || 'Registration failed');
             this.onLoginSuccess(d);
@@ -214,6 +226,81 @@ const App = {
         if (this.socket) { this.socket.disconnect(); this.socket = null; }
         this.currentUser = null;
         this.showScreen('auth');
+    },
+
+    showForgotPasswordModal() {
+        document.getElementById('forgot-step-1').style.display = 'block';
+        document.getElementById('forgot-step-2').style.display = 'none';
+        document.getElementById('forgot-error').textContent = '';
+        document.getElementById('forgot-success').style.display = 'none';
+        document.getElementById('forgot-password-modal').style.display = 'flex';
+    },
+
+    async forgotPassword() {
+        const email = document.getElementById('forgot-email').value.trim();
+        const err = document.getElementById('forgot-error');
+        const success = document.getElementById('forgot-success');
+        const btn = document.getElementById('btn-send-reset-code');
+        if (!email) return;
+
+        err.textContent = '';
+        btn.classList.add('loading');
+        try {
+            const r = await fetch('/api/auth/forgot-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const d = await r.json();
+            if (r.ok) {
+                // Return code directly for testing as per plan
+                success.innerHTML = `CODE: <strong style="color:var(--nerv-amber);letter-spacing:2px;">${d.code}</strong><br><small>(In production this would be emailed)</small>`;
+                success.style.display = 'block';
+                setTimeout(() => {
+                    document.getElementById('forgot-step-1').style.display = 'none';
+                    document.getElementById('forgot-step-2').style.display = 'block';
+                }, 3000);
+            } else {
+                err.textContent = d.error || 'Request failed';
+            }
+        } catch (e) {
+            err.textContent = 'Connection error';
+        } finally {
+            btn.classList.remove('loading');
+        }
+    },
+
+    async resetPassword() {
+        const email = document.getElementById('forgot-email').value.trim();
+        const code = document.getElementById('reset-code').value.trim();
+        const p1 = document.getElementById('reset-new-password').value;
+        const p2 = document.getElementById('reset-confirm-password').value;
+        const err = document.getElementById('reset-error');
+        const btn = document.getElementById('btn-reset-password');
+
+        if (p1 !== p2) { err.textContent = 'Access codes do not match'; return; }
+        if (!code) { err.textContent = 'Enter recovery code'; return; }
+
+        err.textContent = '';
+        btn.classList.add('loading');
+        try {
+            const r = await fetch('/api/auth/reset-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, code, newPassword: p1 })
+            });
+            const d = await r.json();
+            if (r.ok) {
+                alert('Access code reset successfully. You can now login.');
+                document.getElementById('forgot-password-modal').style.display = 'none';
+            } else {
+                err.textContent = d.error || 'Reset failed';
+            }
+        } catch (e) {
+            err.textContent = 'Connection error';
+        } finally {
+            btn.classList.remove('loading');
+        }
     }
 };
 

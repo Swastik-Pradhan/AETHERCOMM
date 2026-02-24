@@ -2682,3 +2682,236 @@ body {
     opacity: 1
   }
 }
+
+/* ═══ NEW FEATURES: CONTEXT MENU, REPLY, REACTIONS, FORWARD ═══ */
+
+.ctx-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .2s;
+  color: var(--text-secondary);
+}
+
+.ctx-option:hover {
+  background: rgba(255, 255, 255, .05);
+  color: #fff;
+}
+
+.ctx-icon {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+}
+
+.ctx-danger {
+  color: rgba(204, 0, 0, .8);
+}
+
+.ctx-danger:hover {
+  background: rgba(204, 0, 0, .1);
+  color: var(--nerv-red);
+}
+
+.msg-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 180px;
+  background: rgba(10, 10, 20, .95);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .6);
+  padding: 6px 0;
+  animation: fadeIn .15s ease-out;
+}
+
+/* Reply Preview Bar */
+.reply-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(10, 10, 20, .8);
+  border-top: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--nerv-cyan);
+  animation: slideUp .3s ease-out;
+}
+
+.reply-preview-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-preview-name {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--nerv-cyan);
+  letter-spacing: 1px;
+  margin-bottom: 2px;
+}
+
+.reply-preview-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Reply Quote in Message */
+.msg-reply-quote {
+  background: rgba(0, 0, 0, .2);
+  border-left: 2px solid var(--nerv-cyan);
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.message.sent .msg-reply-quote {
+  background: rgba(255, 255, 255, .1);
+}
+
+.reply-quote-name {
+  font-weight: 700;
+  color: var(--nerv-cyan);
+  font-size: 10px;
+  margin-bottom: 2px;
+}
+
+.reply-quote-text {
+  color: rgba(255, 255, 255, .6);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Reactions */
+.reactions-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.reaction-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid var(--border-glass);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all .2s;
+}
+
+.reaction-pill:hover {
+  background: rgba(255, 255, 255, .1);
+  border-color: var(--nerv-cyan);
+}
+
+.reaction-pill.active {
+  background: rgba(0, 212, 255, .15);
+  border-color: var(--nerv-cyan);
+}
+
+.reaction-count {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 10px;
+  color: #fff;
+}
+
+/* Forward Modal */
+.forward-preview {
+  padding: 12px;
+  background: rgba(0, 0, 0, .3);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-left: 3px solid var(--nerv-red);
+}
+
+.forward-contacts-list {
+  max-height: 250px;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.forward-contact-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.forward-contact-item:hover {
+  background: rgba(255, 255, 255, .05);
+}
+
+/* Forgot password */
+.forgot-link-wrap {
+  text-align: right;
+  margin-top: -12px;
+  margin-bottom: 16px;
+}
+
+.forgot-link {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-decoration: none;
+  letter-spacing: 1px;
+  transition: color .2s;
+}
+
+.forgot-link:hover {
+  color: var(--nerv-amber);
+}
+
+.form-success {
+  background: rgba(0, 255, 65, .1);
+  border: 1px solid rgba(0, 255, 65, .3);
+  padding: 10px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--nerv-green);
+  margin-top: 10px;
+  text-align: center;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}

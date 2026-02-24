@@ -70,11 +70,19 @@
                 <button type="submit" class="btn-primary"><span class="btn-text">SYNCHRONIZE</span><span
                         class="btn-loader"></span></button>
                 <div id="login-error" class="form-error"></div>
+                <div class="forgot-link-wrap"><a href="#" id="forgot-password-link" class="forgot-link">Forgot access
+                        code?</a></div>
             </form>
             <form id="register-form" class="auth-form">
                 <div class="form-group"><label class="form-label">DESIGNATE PILOT ID</label>
                     <div class="input-wrapper"><input type="text" id="register-username" class="form-input"
                             placeholder="Choose designation..." autocomplete="username" required>
+                        <div class="input-glow"></div>
+                    </div>
+                </div>
+                <div class="form-group"><label class="form-label">COMM LINK (EMAIL)</label>
+                    <div class="input-wrapper"><input type="email" id="register-email" class="form-input"
+                            placeholder="Enter comm link..." autocomplete="email" required>
                         <div class="input-glow"></div>
                     </div>
                 </div>
@@ -284,6 +292,18 @@
                             <span class="typing-name" id="typing-name"></span>
                             <span class="typing-dots"><span></span><span></span><span></span></span>
                         </div>
+                    </div>
+
+                    <div class="reply-preview-bar" id="reply-preview-bar" style="display:none;">
+                        <div class="reply-preview-content">
+                            <div class="reply-preview-name" id="reply-preview-name"></div>
+                            <div class="reply-preview-text" id="reply-preview-text"></div>
+                        </div>
+                        <button class="icon-btn reply-preview-close" id="btn-cancel-reply"><svg viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18" />
+                                <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg></button>
                     </div>
 
                     <div class="message-input-area glass-input-bar">
@@ -539,10 +559,83 @@
         </div>
     </div>
 
+    <!-- Forgot Password Modal -->
+    <div id="forgot-password-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h3 class="modal-title">RECOVER ACCESS</h3>
+                <button class="icon-btn modal-close" id="btn-close-forgot"><svg viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg></button>
+            </div>
+            <div id="forgot-step-1">
+                <p class="community-modal-desc">Enter your registered comm link (email) to receive a recovery code.</p>
+                <div class="form-group"><label class="form-label">COMM LINK</label>
+                    <div class="input-wrapper"><input type="email" id="forgot-email" class="form-input"
+                            placeholder="Enter comm link...">
+                        <div class="input-glow"></div>
+                    </div>
+                </div>
+                <button class="btn-primary" id="btn-send-reset-code" style="width:100%;margin-top:12px;"><span
+                        class="btn-text">SEND RECOVERY CODE</span><span class="btn-loader"></span></button>
+                <div id="forgot-error" class="form-error"></div>
+                <div id="forgot-success" class="form-success" style="display:none;"></div>
+            </div>
+            <div id="forgot-step-2" style="display:none;">
+                <p class="community-modal-desc">Enter the 6-digit recovery code and your new access code.</p>
+                <div class="form-group"><label class="form-label">RECOVERY CODE</label>
+                    <div class="input-wrapper"><input type="text" id="reset-code" class="form-input"
+                            placeholder="6-digit code..." maxlength="6">
+                        <div class="input-glow"></div>
+                    </div>
+                </div>
+                <div class="form-group"><label class="form-label">NEW ACCESS CODE</label>
+                    <div class="input-wrapper"><input type="password" id="reset-new-password" class="form-input"
+                            placeholder="New access code...">
+                        <div class="input-glow"></div>
+                    </div>
+                </div>
+                <div class="form-group"><label class="form-label">CONFIRM ACCESS CODE</label>
+                    <div class="input-wrapper"><input type="password" id="reset-confirm-password" class="form-input"
+                            placeholder="Confirm access code...">
+                        <div class="input-glow"></div>
+                    </div>
+                </div>
+                <button class="btn-primary" id="btn-reset-password" style="width:100%;margin-top:12px;"><span
+                        class="btn-text">RESET ACCESS CODE</span><span class="btn-loader"></span></button>
+                <div id="reset-error" class="form-error"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Forward Message Modal -->
+    <div id="forward-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h3 class="modal-title">FORWARD MESSAGE</h3>
+                <button class="icon-btn modal-close" id="btn-close-forward"><svg viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg></button>
+            </div>
+            <div class="forward-preview" id="forward-preview"></div>
+            <div class="form-group"><label class="form-label">SELECT RECIPIENT</label>
+                <div class="input-wrapper"><input type="text" id="forward-search" class="form-input"
+                        placeholder="Search contacts...">
+                    <div class="input-glow"></div>
+                </div>
+            </div>
+            <div class="forward-contacts-list" id="forward-contacts-list"></div>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
-    <script src="/js/app.js?v=7"></script>
-    <script src="/js/chat.js?v=7"></script>
-    <script src="/js/call.js?v=7"></script>
+    <script src="/js/app.js?v=8"></script>
+    <script src="/js/chat.js?v=8"></script>
+    <script src="/js/call.js?v=8"></script>
 </body>
 
 </html>
